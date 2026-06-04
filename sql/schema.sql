@@ -7,31 +7,32 @@ PRAGMA foreign_keys = ON;
 -- =========================================
 CREATE TABLE dim_fund (
     amfi_code TEXT PRIMARY KEY,
-    scheme_name TEXT NOT NULL,
-    fund_house TEXT NOT NULL,
+    fund_house TEXT,
+    scheme_name TEXT,
     category TEXT,
     sub_category TEXT,
-    benchmark TEXT,
+    plan TEXT,
     launch_date DATE,
-    risk_level TEXT,
-    expense_ratio REAL,
+    benchmark TEXT,
+    expense_ratio_pct REAL,
+    exit_load_pct REAL,
+    min_sip_amount REAL,
+    min_lumpsum_amount REAL,
     fund_manager TEXT,
-    fund_type TEXT
+    risk_category TEXT,
+    sebi_category_code TEXT
 );
 
 -- =========================================
 -- 2. FACT TABLE: NAV HISTORY
 -- =========================================
 CREATE TABLE fact_nav (
-    nav_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amfi_code TEXT NOT NULL,
-    nav_date DATE NOT NULL,
-    nav REAL NOT NULL,
+    amfi_code TEXT,
+    nav_date DATE,
+    nav REAL,
     daily_return REAL,
-
-    FOREIGN KEY (amfi_code)
-        REFERENCES dim_fund(amfi_code)
-        ON DELETE CASCADE
+    PRIMARY KEY (amfi_code, nav_date),
+    FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
 -- =========================================
@@ -39,39 +40,42 @@ CREATE TABLE fact_nav (
 -- =========================================
 CREATE TABLE fact_transactions (
     transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amfi_code TEXT NOT NULL,
-    transaction_date DATE NOT NULL,
-    purchase_amount REAL DEFAULT 0,
-    redemption_amount REAL DEFAULT 0,
-    net_inflow REAL,
+    investor_id TEXT,
+    transaction_date DATE,
+    amfi_code TEXT,
     transaction_type TEXT,
-
-    FOREIGN KEY (amfi_code)
-        REFERENCES dim_fund(amfi_code)
-        ON DELETE CASCADE
+    amount_inr REAL,
+    state TEXT,
+    city TEXT,
+    city_tier TEXT,
+    age_group TEXT,
+    gender TEXT,
+    annual_income_lakh REAL,
+    payment_mode TEXT,
+    kyc_status TEXT,
+    FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
 -- =========================================
 -- 4. FACT TABLE: SCHEME PERFORMANCE
 -- =========================================
 CREATE TABLE fact_performance (
-    performance_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amfi_code TEXT NOT NULL,
-    performance_date DATE,
-    returns_1m REAL,
-    returns_3m REAL,
-    returns_6m REAL,
-    returns_1y REAL,
-    returns_3y REAL,
-    returns_5y REAL,
-    sharpe_ratio REAL,
-    volatility REAL,
+    amfi_code TEXT PRIMARY KEY,
+    return_1yr_pct REAL,
+    return_3yr_pct REAL,
+    return_5yr_pct REAL,
+    benchmark_3yr_pct REAL,
     alpha REAL,
     beta REAL,
-
-    FOREIGN KEY (amfi_code)
-        REFERENCES dim_fund(amfi_code)
-        ON DELETE CASCADE
+    sharpe_ratio REAL,
+    sortino_ratio REAL,
+    std_dev_ann_pct REAL,
+    max_drawdown_pct REAL,
+    aum_crore REAL,
+    expense_ratio_pct REAL,
+    morningstar_rating INTEGER,
+    risk_grade TEXT,
+    FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
 -- =========================================
@@ -143,12 +147,11 @@ CREATE TABLE fact_category_inflows (
 -- 10. FACT TABLE: FUND HOUSE AUM
 -- =========================================
 CREATE TABLE fact_aum (
-    aum_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aum_date DATE,
     fund_house TEXT,
-    month_year TEXT,
-    total_aum REAL,
-    equity_aum REAL,
-    debt_aum REAL,
-    hybrid_aum REAL
+    aum_lakh_crore REAL,
+    aum_crore REAL,
+    num_schemes INTEGER,
+    PRIMARY KEY (aum_date, fund_house)
 );
 
