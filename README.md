@@ -1,4 +1,4 @@
-# Bluestock Mutual Fund Analytics
+# Bluestock Mutual Fund Capstone project
 
 ## Project Overview
 
