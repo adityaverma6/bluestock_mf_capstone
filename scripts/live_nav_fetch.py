@@ -1,94 +1,79 @@
-import requests
-import pandas as pd
-import os
+"""Download current NAV history for the configured mutual-fund schemes."""
+
+from __future__ import annotations
+
+import logging
+import re
 import time
+from pathlib import Path
+from typing import Any
 
+import pandas as pd
+import requests
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
+PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
+API_URL = "https://api.mfapi.in/mf/{scheme_code}"
+REQUEST_TIMEOUT_SECONDS = 30
+LOGGER = logging.getLogger(__name__)
 
-bluechip_schemes = {
+BLUECHIP_SCHEMES = {
     "SBI Bluechip": "119551",
     "ICICI Bluechip": "120503",
     "Nippon Large Cap": "118632",
     "Axis Bluechip": "119092",
-    "Kotak Bluechip": "120841"
+    "Kotak Bluechip": "120841",
 }
 
-RAW_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
-os.makedirs(RAW_DIR, exist_ok=True)
 
-for fund_name, code in bluechip_schemes.items():
-    url = f"https://api.mfapi.in/mf/{code}"
-    try:
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-        nav_data = pd.DataFrame(resp.json()["data"])
-        nav_data["scheme_code"] = code
-        nav_data["fund_name"] = fund_name
-
-        safe_name = fund_name.lower().replace(" ", "_")
-        filepath = os.path.join(RAW_DIR, f"{safe_name}_nav.csv")
-        nav_data.to_csv(filepath, index=False)
-        print(f"[OK] {fund_name} - {len(nav_data)} rows -> {filepath}")
-        time.sleep(0.5)
-    except Exception as e:
-        print(f"[FAIL] {fund_name}: {e}")
-
-print()
+def fetch_scheme(scheme_code: str) -> dict[str, Any]:
+    """Fetch and validate one scheme response from the MF API."""
+    response = requests.get(
+        API_URL.format(scheme_code=scheme_code),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("data"):
+        raise ValueError(f"No NAV records returned for scheme {scheme_code}")
+    return payload
 
 
-scheme_code = "125497"
-
-url = f"https://api.mfapi.in/mf/{scheme_code}"
-
-response = requests.get(url)
-data = response.json()
-
-nav_df = pd.DataFrame(data["data"])
-
-nav_df["scheme_code"] = data["meta"]["scheme_code"]
-nav_df["scheme_name"] = data["meta"]["scheme_name"]
-
-nav_df.to_csv(
-    "../data/processed/hdfc_top100_nav_history.csv",
-    index=False
-)
+def safe_filename(name: str) -> str:
+    """Convert a fund name into a stable lowercase filename stem."""
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
 
 
+def download_nav_data(
+    schemes: dict[str, str] = BLUECHIP_SCHEMES,
+    delay_seconds: float = 0.5,
+) -> pd.DataFrame:
+    """Download individual and combined NAV files for configured schemes."""
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    frames: list[pd.DataFrame] = []
+
+    for fund_name, scheme_code in schemes.items():
+        payload = fetch_scheme(scheme_code)
+        nav = pd.DataFrame(payload["data"])
+        nav["scheme_code"] = scheme_code
+        nav["fund_name"] = fund_name
+        nav.to_csv(RAW_DATA_DIR / f"{safe_filename(fund_name)}_nav.csv", index=False)
+        frames.append(nav)
+        LOGGER.info("Downloaded %s NAV rows for %s", len(nav), fund_name)
+        time.sleep(delay_seconds)
+
+    combined = pd.concat(frames, ignore_index=True)
+    combined.to_csv(PROCESSED_DATA_DIR / "top5_bluechip_nav.csv", index=False)
+    return combined
 
 
-schemes = {
-    "SBI Bluechip": "119551",
-    "ICICI Bluechip": "120503",
-    "Nippon Large Cap": "118632",
-    "Axis Bluechip": "119092",
-    "Kotak Bluechip": "120841"
-}
+def main() -> None:
+    """Download NAV history for the configured blue-chip schemes."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    download_nav_data()
 
-all_nav = []
 
-for fund_name, scheme_code in schemes.items():
-
-    url = f"https://api.mfapi.in/mf/{scheme_code}"
-
-    try:
-        response = requests.get(url)
-        data = response.json()
-
-        df = pd.DataFrame(data["data"])
-
-        df["scheme_code"] = scheme_code
-        df["fund_name"] = fund_name
-
-        all_nav.append(df)
-
-        print(f"Downloaded {fund_name}")
-
-    except Exception as e:
-        print(f"Failed for {fund_name}: {e}")
-
-combined_nav = pd.concat(all_nav, ignore_index=True)
-
-combined_nav.to_csv(
-    "../data/processed/top5_bluechip_nav.csv",
-    index=False
-)
+if __name__ == "__main__":
+    main()

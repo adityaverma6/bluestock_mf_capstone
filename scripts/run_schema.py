@@ -1,57 +1,64 @@
+"""Create the SQLite schema used by the mutual-fund analytics pipeline."""
+
+from __future__ import annotations
+
+import argparse
+import logging
 import sqlite3
-import os
+from pathlib import Path
 
-# =========================================
-# PROJECT ROOT DIRECTORY
-# =========================================
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
+DATABASE_PATH = PROJECT_ROOT / "data" / "db" / "bluestock_mf_pipeline.db"
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+LOGGER = logging.getLogger(__name__)
 
-# =========================================
-# PATHS
-# =========================================
 
-schema_path = os.path.join(
-    BASE_DIR,
-    "sql",
-    "schema.sql"
-)
+def create_schema(
+    database_path: Path = DATABASE_PATH,
+    schema_path: Path = SCHEMA_PATH,
+    reset: bool = False,
+) -> None:
+    """Create database tables, optionally removing existing pipeline tables."""
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    schema_sql = schema_path.read_text(encoding="utf-8")
 
-db_path = os.path.join(
-    BASE_DIR,
-    "data",
-    "db",
-    "bluestock_mf.db"
-)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA journal_mode = MEMORY")
+        if reset:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            table_names = connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+            for (table_name,) in table_names:
+                connection.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+        connection.executescript(schema_sql)
+        connection.execute("PRAGMA foreign_keys = ON")
 
-# =========================================
-# CREATE DB FOLDER IF NOT EXISTS
-# =========================================
+    LOGGER.info("Database schema ready at %s", database_path)
 
-os.makedirs(
-    os.path.join(BASE_DIR, "data", "db"),
-    exist_ok=True
-)
 
-# =========================================
-# CONNECT TO SQLITE
-# =========================================
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Drop existing application tables before creating the schema.",
+    )
+    return parser.parse_args()
 
-conn = sqlite3.connect(db_path)
 
-# =========================================
-# READ schema.sql
-# =========================================
+def main() -> None:
+    """Run the schema creation command."""
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    create_schema(reset=args.reset)
 
-with open(schema_path, "r") as f:
-    sql_script = f.read()
 
-# =========================================
-# EXECUTE SQL SCRIPT
-# =========================================
-
-conn.executescript(sql_script)
-
-print("Schema created successfully!")
-
-conn.close()
+if __name__ == "__main__":
+    main()

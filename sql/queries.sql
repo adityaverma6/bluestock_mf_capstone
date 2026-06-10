@@ -1,133 +1,72 @@
--- =========================================
--- 1. TOP 5 FUNDS BY AUM
--- =========================================
-SELECT 
-    fund_house,
-    MAX(total_aum) AS highest_aum
-FROM fact_aum
-GROUP BY fund_house
-ORDER BY highest_aum DESC
+-- 1. Top five fund houses by latest reported AUM
+WITH latest_aum AS (
+    SELECT fund_house, aum_crore,
+           ROW_NUMBER() OVER (PARTITION BY fund_house ORDER BY date DESC) AS row_num
+    FROM fact_aum
+)
+SELECT fund_house, ROUND(aum_crore, 2) AS latest_aum_crore
+FROM latest_aum
+WHERE row_num = 1
+ORDER BY latest_aum_crore DESC
 LIMIT 5;
 
-
--- =========================================
--- 2. AVERAGE NAV PER MONTH
--- =========================================
-SELECT 
-    strftime('%Y-%m', nav_date) AS month,
-    ROUND(AVG(nav), 2) AS avg_nav
+-- 2. Average NAV by month
+SELECT substr(date, 1, 7) AS month, ROUND(AVG(nav), 2) AS average_nav
 FROM fact_nav
 GROUP BY month
 ORDER BY month;
 
-
--- =========================================
--- 3. SIP YEAR-OVER-YEAR GROWTH
--- =========================================
-SELECT
-    substr(month_year, 1, 4) AS year,
-    SUM(sip_amount) AS total_sip,
-    ROUND(
-        (
-            SUM(sip_amount) -
-            LAG(SUM(sip_amount)) OVER (
-                ORDER BY substr(month_year,1,4)
-            )
-        ) * 100.0 /
-        LAG(SUM(sip_amount)) OVER (
-            ORDER BY substr(month_year,1,4)
-        ),
-        2
-    ) AS yoy_growth_percent
+-- 3. SIP inflow trend
+SELECT month, sip_inflow_crore, yoy_growth_pct
 FROM fact_sip_inflows
-GROUP BY year;
+ORDER BY month;
 
-
--- =========================================
--- 4. TRANSACTIONS BY STATES
--- =========================================
-SELECT
-    state,
-    COUNT(*) AS total_transactions,
-    SUM(net_inflow) AS total_inflow
+-- 4. Transaction activity by state
+SELECT state,
+       COUNT(*) AS transaction_count,
+       ROUND(SUM(CASE WHEN transaction_type = 'Redemption'
+                      THEN -amount_inr ELSE amount_inr END), 2) AS net_inflow_inr
 FROM fact_transactions
 GROUP BY state
-ORDER BY total_inflow DESC;
+ORDER BY net_inflow_inr DESC;
 
-
--- =========================================
--- 5. FUNDS WITH EXPENSE RATIO < 1%
--- =========================================
-SELECT
-    scheme_name,
-    fund_house,
-    category,
-    expense_ratio
+-- 5. Funds with an expense ratio below one percent
+SELECT scheme_name, fund_house, category, expense_ratio_pct
 FROM dim_fund
-WHERE expense_ratio < 1
-ORDER BY expense_ratio ASC;
+WHERE expense_ratio_pct < 1
+ORDER BY expense_ratio_pct;
 
-
--- =========================================
--- 6. TOP 10 FUNDS BY 1-YEAR RETURN
--- =========================================
-SELECT
-    d.scheme_name,
-    d.fund_house,
-    p.returns_1y
-FROM fact_performance p
-JOIN dim_fund d
-ON p.amfi_code = d.amfi_code
-ORDER BY p.returns_1y DESC
+-- 6. Top ten funds by one-year return
+SELECT scheme_name, fund_house, return_1yr_pct
+FROM fact_performance
+ORDER BY return_1yr_pct DESC
 LIMIT 10;
 
+-- 7. Average one-year return by category
+SELECT category, ROUND(AVG(return_1yr_pct), 2) AS average_1yr_return_pct
+FROM fact_performance
+GROUP BY category
+ORDER BY average_1yr_return_pct DESC;
 
--- =========================================
--- 7. CATEGORY-WISE AVERAGE RETURNS
--- =========================================
-SELECT
-    d.category,
-    ROUND(AVG(p.returns_1y), 2) AS avg_1y_return
-FROM fact_performance p
-JOIN dim_fund d
-ON p.amfi_code = d.amfi_code
-GROUP BY d.category
-ORDER BY avg_1y_return DESC;
-
-
--- =========================================
--- 8. TOP SECTORS BY PORTFOLIO HOLDINGS
--- =========================================
-SELECT
-    sector,
-    ROUND(SUM(holding_percent), 2) AS total_exposure
+-- 8. Portfolio exposure by sector
+SELECT sector, ROUND(SUM(weight_pct), 2) AS total_weight_pct
 FROM fact_portfolio_holdings
 GROUP BY sector
-ORDER BY total_exposure DESC
+ORDER BY total_weight_pct DESC
 LIMIT 10;
 
-
--- =========================================
--- 9. MOST VOLATILE FUNDS
--- =========================================
-SELECT
-    d.scheme_name,
-    p.volatility
-FROM fact_performance p
-JOIN dim_fund d
-ON p.amfi_code = d.amfi_code
-ORDER BY p.volatility DESC
+-- 9. Most volatile funds from derived NAV metrics
+SELECT f.scheme_name, ROUND(m.annualized_volatility_pct, 2) AS volatility_pct
+FROM fact_derived_metrics AS m
+JOIN dim_fund AS f USING (amfi_code)
+ORDER BY volatility_pct DESC
 LIMIT 10;
 
-
--- =========================================
--- 10. BENCHMARK PERFORMANCE ANALYSIS
--- =========================================
-SELECT
-    b.benchmark_name,
-    ROUND(AVG(r.daily_return), 2) AS avg_daily_return
-FROM fact_benchmark_returns r
-JOIN dim_benchmark b
-ON r.benchmark_id = b.benchmark_id
-GROUP BY b.benchmark_name
-ORDER BY avg_daily_return DESC;
+-- 10. Benchmark date coverage
+SELECT index_name,
+       MIN(date) AS first_date,
+       MAX(date) AS last_date,
+       COUNT(*) AS observations
+FROM fact_benchmark_returns
+GROUP BY index_name
+ORDER BY index_name;

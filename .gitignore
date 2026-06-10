@@ -7,11 +7,16 @@ venv/
 env/
 
 # Data files
-data/raw/
-data/processed/
+data/raw/*
+!data/raw/README.md
+data/processed/*
+!data/processed/README.md
 *.csv
 *.xlsx
 *.parquet
+data/db/bluestock_mf_pipeline.db
+*.db-journal
+.*.building.db
 
 # Jupyter
 .ipynb_checkpoints/

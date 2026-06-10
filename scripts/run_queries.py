@@ -1,81 +1,49 @@
+"""Execute the analytical SQL statements against the project database."""
+
+from __future__ import annotations
+
+import logging
 import sqlite3
-import os
+from pathlib import Path
 
-# =========================================
-# PROJECT ROOT DIRECTORY
-# =========================================
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATABASE_PATH = PROJECT_ROOT / "data" / "db" / "bluestock_mf_pipeline.db"
+QUERY_PATH = PROJECT_ROOT / "sql" / "queries.sql"
+LOGGER = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
-# =========================================
-# PATHS
-# =========================================
+def split_queries(sql_script: str) -> list[str]:
+    """Split the project's simple semicolon-delimited SQL statements."""
+    return [statement.strip() for statement in sql_script.split(";") if statement.strip()]
 
-db_path = os.path.join(
-    BASE_DIR,
-    "data",
-    "db",
-    "bluestock_mf.db"
-)
 
-query_path = os.path.join(
-    BASE_DIR,
-    "sql",
-    "queries.sql"
-)
+def execute_queries(
+    database_path: Path = DATABASE_PATH,
+    query_path: Path = QUERY_PATH,
+) -> list[tuple[list[str], list[tuple[object, ...]]]]:
+    """Execute all configured queries and return columns with result rows."""
+    statements = split_queries(query_path.read_text(encoding="utf-8"))
+    query_results: list[tuple[list[str], list[tuple[object, ...]]]] = []
 
-# =========================================
-# CONNECT TO DATABASE
-# =========================================
+    with sqlite3.connect(database_path) as connection:
+        for statement in statements:
+            cursor = connection.execute(statement)
+            columns = [description[0] for description in cursor.description or []]
+            query_results.append((columns, cursor.fetchall()))
 
-conn = sqlite3.connect(db_path)
+    LOGGER.info("Executed %s analytical queries", len(query_results))
+    return query_results
 
-cursor = conn.cursor()
 
-# =========================================
-# READ SQL FILE
-# =========================================
+def main() -> None:
+    """Execute queries and print compact result tables."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    for index, (columns, rows) in enumerate(execute_queries(), start=1):
+        print(f"\nQuery {index}")
+        print(" | ".join(columns))
+        for row in rows:
+            print(" | ".join(str(value) for value in row))
 
-with open(query_path, "r") as f:
-    sql_script = f.read()
 
-# =========================================
-# SPLIT MULTIPLE QUERIES
-# =========================================
-
-queries = sql_script.split(";")
-
-# =========================================
-# EXECUTE EACH QUERY
-# =========================================
-
-for query in queries:
-
-    query = query.strip()
-
-    if query:
-
-        print("\n" + "=" * 60)
-
-        try:
-            cursor.execute(query)
-
-            results = cursor.fetchall()
-
-            columns = [desc[0] for desc in cursor.description]
-
-            print(" | ".join(columns))
-
-            print("-" * 60)
-
-            for row in results:
-                print(row)
-
-        except Exception as e:
-            print(f"Error: {e}")
-
-# =========================================
-# CLOSE CONNECTION
-# =========================================
-
-conn.close()
+if __name__ == "__main__":
+    main()

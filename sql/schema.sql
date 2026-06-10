@@ -1,18 +1,13 @@
-
-
 PRAGMA foreign_keys = ON;
 
--- =========================================
--- 1. DIMENSION TABLE: FUND MASTER
--- =========================================
-CREATE TABLE dim_fund (
+CREATE TABLE IF NOT EXISTS dim_fund (
     amfi_code TEXT PRIMARY KEY,
-    fund_house TEXT,
-    scheme_name TEXT,
+    fund_house TEXT NOT NULL,
+    scheme_name TEXT NOT NULL,
     category TEXT,
     sub_category TEXT,
     plan TEXT,
-    launch_date DATE,
+    launch_date TEXT,
     benchmark TEXT,
     expense_ratio_pct REAL,
     exit_load_pct REAL,
@@ -23,28 +18,20 @@ CREATE TABLE dim_fund (
     sebi_category_code TEXT
 );
 
--- =========================================
--- 2. FACT TABLE: NAV HISTORY
--- =========================================
-CREATE TABLE fact_nav (
-    amfi_code TEXT,
-    nav_date DATE,
-    nav REAL,
-    daily_return REAL,
-    PRIMARY KEY (amfi_code, nav_date),
+CREATE TABLE IF NOT EXISTS fact_nav (
+    amfi_code TEXT NOT NULL,
+    date TEXT NOT NULL,
+    nav REAL NOT NULL CHECK (nav > 0),
+    PRIMARY KEY (amfi_code, date),
     FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
--- =========================================
--- 3. FACT TABLE: INVESTOR TRANSACTIONS
--- =========================================
-CREATE TABLE fact_transactions (
-    transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    investor_id TEXT,
-    transaction_date DATE,
-    amfi_code TEXT,
-    transaction_type TEXT,
-    amount_inr REAL,
+CREATE TABLE IF NOT EXISTS fact_transactions (
+    investor_id TEXT NOT NULL,
+    transaction_date TEXT NOT NULL,
+    amfi_code TEXT NOT NULL,
+    transaction_type TEXT NOT NULL,
+    amount_inr REAL NOT NULL CHECK (amount_inr >= 0),
     state TEXT,
     city TEXT,
     city_tier TEXT,
@@ -56,11 +43,12 @@ CREATE TABLE fact_transactions (
     FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
--- =========================================
--- 4. FACT TABLE: SCHEME PERFORMANCE
--- =========================================
-CREATE TABLE fact_performance (
+CREATE TABLE IF NOT EXISTS fact_performance (
     amfi_code TEXT PRIMARY KEY,
+    scheme_name TEXT NOT NULL,
+    fund_house TEXT NOT NULL,
+    category TEXT,
+    plan TEXT,
     return_1yr_pct REAL,
     return_3yr_pct REAL,
     return_5yr_pct REAL,
@@ -78,80 +66,73 @@ CREATE TABLE fact_performance (
     FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
--- =========================================
--- 5. FACT TABLE: PORTFOLIO HOLDINGS
--- =========================================
-CREATE TABLE fact_portfolio_holdings (
-    holding_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS fact_portfolio_holdings (
     amfi_code TEXT NOT NULL,
-    holding_date DATE,
-    company_name TEXT,
+    stock_symbol TEXT,
+    stock_name TEXT,
     sector TEXT,
-    instrument_type TEXT,
-    market_value REAL,
-    holding_percent REAL,
-
-    FOREIGN KEY (amfi_code)
-        REFERENCES dim_fund(amfi_code)
-        ON DELETE CASCADE
+    weight_pct REAL,
+    market_value_cr REAL,
+    current_price_inr REAL,
+    portfolio_date TEXT,
+    FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
 );
 
--- =========================================
--- 6. DIMENSION TABLE: BENCHMARK INDICES
--- =========================================
-CREATE TABLE dim_benchmark (
-    benchmark_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    benchmark_name TEXT UNIQUE,
-    index_provider TEXT,
-    category TEXT
+CREATE TABLE IF NOT EXISTS fact_benchmark_returns (
+    date TEXT NOT NULL,
+    index_name TEXT NOT NULL,
+    close_value REAL NOT NULL,
+    PRIMARY KEY (date, index_name)
 );
 
--- =========================================
--- 7. FACT TABLE: BENCHMARK RETURNS
--- =========================================
-CREATE TABLE fact_benchmark_returns (
-    benchmark_return_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    benchmark_id INTEGER,
-    return_date DATE,
-    index_value REAL,
-    daily_return REAL,
-
-    FOREIGN KEY (benchmark_id)
-        REFERENCES dim_benchmark(benchmark_id)
-        ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS fact_sip_inflows (
+    month TEXT PRIMARY KEY,
+    sip_inflow_crore REAL,
+    active_sip_accounts_crore REAL,
+    new_sip_accounts_lakh REAL,
+    sip_aum_lakh_crore REAL,
+    yoy_growth_pct REAL
 );
 
--- =========================================
--- 8. FACT TABLE: SIP INFLOWS
--- =========================================
-CREATE TABLE fact_sip_inflows (
-    sip_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    month_year TEXT,
-    total_sip_accounts INTEGER,
-    sip_amount REAL
+CREATE TABLE IF NOT EXISTS fact_category_inflows (
+    month TEXT NOT NULL,
+    category TEXT NOT NULL,
+    net_inflow_crore REAL,
+    PRIMARY KEY (month, category)
 );
 
--- =========================================
--- 9. FACT TABLE: CATEGORY INFLOWS
--- =========================================
-CREATE TABLE fact_category_inflows (
-    inflow_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT,
-    month_year TEXT,
-    inflow_amount REAL,
-    outflow_amount REAL,
-    net_flow REAL
-);
-
--- =========================================
--- 10. FACT TABLE: FUND HOUSE AUM
--- =========================================
-CREATE TABLE fact_aum (
-    aum_date DATE,
-    fund_house TEXT,
+CREATE TABLE IF NOT EXISTS fact_aum (
+    date TEXT NOT NULL,
+    fund_house TEXT NOT NULL,
     aum_lakh_crore REAL,
     aum_crore REAL,
     num_schemes INTEGER,
-    PRIMARY KEY (aum_date, fund_house)
+    PRIMARY KEY (date, fund_house)
 );
 
+CREATE TABLE IF NOT EXISTS fact_industry_folios (
+    month TEXT PRIMARY KEY,
+    total_folios_crore REAL,
+    equity_folios_crore REAL,
+    debt_folios_crore REAL,
+    hybrid_folios_crore REAL,
+    others_folios_crore REAL
+);
+
+CREATE TABLE IF NOT EXISTS fact_derived_metrics (
+    amfi_code TEXT PRIMARY KEY,
+    observations INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    total_return_pct REAL,
+    annualized_return_pct REAL,
+    annualized_volatility_pct REAL,
+    sharpe_ratio REAL,
+    max_drawdown_pct REAL,
+    FOREIGN KEY (amfi_code) REFERENCES dim_fund(amfi_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_nav_date ON fact_nav(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON fact_transactions(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_transactions_state ON fact_transactions(state);
+CREATE INDEX IF NOT EXISTS idx_holdings_sector ON fact_portfolio_holdings(sector);

@@ -1,97 +1,66 @@
+"""Load cleaned mutual-fund datasets into the project SQLite database."""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from pathlib import Path
+
 import pandas as pd
-from sqlalchemy import create_engine
-import os
 
-# =========================================
-# PROJECT ROOT DIRECTORY
-# =========================================
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
+DATABASE_PATH = PROJECT_ROOT / "data" / "db" / "bluestock_mf_pipeline.db"
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+LOGGER = logging.getLogger(__name__)
 
-# =========================================
-# DATABASE PATH
-# =========================================
+DATASETS = {
+    "dim_fund": "cleaned_fund_master.csv",
+    "fact_nav": "cleaned_nav_history.csv",
+    "fact_transactions": "cleaned_investor_transactions.csv",
+    "fact_performance": "cleaned_scheme_performance.csv",
+    "fact_portfolio_holdings": "cleaned_portfolio_holdings.csv",
+    "fact_benchmark_returns": "cleaned_benchmark_indices.csv",
+    "fact_sip_inflows": "cleaned_monthly_sip_inflows.csv",
+    "fact_category_inflows": "cleaned_category_inflows.csv",
+    "fact_aum": "cleaned_aum_by_fund_house.csv",
+    "fact_industry_folios": "cleaned_industry_folio_count.csv",
+    "fact_derived_metrics": "derived_fund_metrics.csv",
+}
 
-db_path = os.path.join(
-    BASE_DIR,
-    "data",
-    "db",
-    "bluestock_mf.db"
-)
 
-engine = create_engine(f"sqlite:///{db_path}")
+def load_datasets(
+    database_path: Path = DATABASE_PATH,
+    data_dir: Path = PROCESSED_DATA_DIR,
+) -> dict[str, int]:
+    """Replace table contents with rows from the cleaned CSV datasets."""
+    missing_files = [
+        filename for filename in DATASETS.values() if not (data_dir / filename).is_file()
+    ]
+    if missing_files:
+        missing = ", ".join(sorted(missing_files))
+        raise FileNotFoundError(f"Missing processed datasets: {missing}")
 
-# =========================================
-# DATA DIRECTORY
-# =========================================
+    row_counts: dict[str, int] = {}
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA journal_mode = MEMORY")
+        connection.execute("PRAGMA foreign_keys = ON")
+        for table_name in reversed(DATASETS):
+            connection.execute(f'DELETE FROM "{table_name}"')
+        for table_name, filename in DATASETS.items():
+            dataframe = pd.read_csv(data_dir / filename)
+            dataframe.to_sql(table_name, connection, if_exists="append", index=False)
+            row_counts[table_name] = len(dataframe)
+            LOGGER.info("Loaded %s rows into %s", len(dataframe), table_name)
 
-DATA_DIR = os.path.join(
-    BASE_DIR,
-    "data",
-    "processed"
-)
+    return row_counts
 
-# =========================================
-# LOAD CSV FILES
-# =========================================
 
-df_fund_master = pd.read_csv(
-    os.path.join(DATA_DIR, "cleaned_fund_master.csv")
-)
+def main() -> None:
+    """Load all processed datasets into SQLite."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    load_datasets()
 
-df_nav = pd.read_csv(
-    os.path.join(DATA_DIR, "cleaned_nav_history.csv")
-)
 
-df_transactions = pd.read_csv(
-    os.path.join(DATA_DIR, "cleaned_investor_transactions.csv")
-)
-
-df_performance = pd.read_csv(
-    os.path.join(DATA_DIR, "cleaned_scheme_performance.csv")
-)
-
-df_holdings = pd.read_csv(
-    os.path.join(DATA_DIR, "cleaned_portfolio_holdings.csv")
-)
-
-# =========================================
-# LOAD DATA INTO SQLITE
-# =========================================
-
-df_fund_master.to_sql(
-    "dim_fund",
-    engine,
-    if_exists="replace",
-    index=False
-)
-
-df_nav.to_sql(
-    "fact_nav",
-    engine,
-    if_exists="replace",
-    index=False
-)
-
-df_transactions.to_sql(
-    "fact_transactions",
-    engine,
-    if_exists="replace",
-    index=False
-)
-
-df_performance.to_sql(
-    "fact_performance",
-    engine,
-    if_exists="replace",
-    index=False
-)
-
-df_holdings.to_sql(
-    "fact_portfolio_holdings",
-    engine,
-    if_exists="replace",
-    index=False
-)
-
-print("All datasets loaded successfully!")
+if __name__ == "__main__":
+    main()
